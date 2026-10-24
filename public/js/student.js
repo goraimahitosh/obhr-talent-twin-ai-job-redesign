@@ -54,6 +54,7 @@
     const r = await api('GET', '/me', null, token);
     S = r; clockOffset = Date.parse(r.me.serverNow) - Date.now();
     const who = $('#whoChip'); who.textContent = r.me.name + ' · ' + r.me.code; who.classList.remove('hide');
+    coachSetup();
     if (r.me.status !== 'in_progress') { showReport(); return; }
     if (!draft) draft = Object.assign(M.emptyDecisions(), M.sanitizeDecisions(r.me.draft));
     show('app'); startClock(); renderSteps(); renderStep();
@@ -64,6 +65,7 @@
     try {
       const r = await api('GET', '/me', null, token);
       S.me.deadline = r.me.deadline; clockOffset = Date.parse(r.me.serverNow) - Date.now(); S.documents = r.documents; S.settings = r.settings;
+      if (!coachBusy) { S.coach = r.coach; coachSetup(); }
       if (r.me.status !== 'in_progress') { S = r; showReport(); } else renderSteps();
     } catch (e) { if (e.status === 401) { store.del(TOKEN_KEY); location.reload(); } }
   }
@@ -335,15 +337,72 @@
     show('reportView');
     const host = $('#reportHost');
     if (!S.report) { host.innerHTML = '<div class="card"><h2>Submitted</h2><p class="muted">Your report is being prepared.</p></div>'; return; }
-    window.TTReport.mount(host, S.report, { refresh: refreshReport });
+    const wantAi = S.report.scoreVisible && !S.report.aiSuggestions && S.settings.aiReport && !aiGaveUp;
+    window.TTReport.mount(host, S.report, { refresh: refreshReport, aiPending: wantAi });
+    if (wantAi && !aiLoading) loadAiSuggestions();
     if (S.documents && S.documents.length) {
       const d = document.createElement('div'); d.className = 'card no-print'; d.style.marginTop = '14px';
       d.innerHTML = '<h3>Case documents</h3><div class="btn-row" style="margin-top:8px">' + S.documents.map(x => '<button class="btn btn-ghost btn-sm" data-doc="' + x.id + '" data-title="' + esc(x.title) + '">' + esc(x.title) + '</button>').join('') + '</div>';
       d.addEventListener('click', e => { const b = e.target.closest('[data-doc]'); if (b) window.TTViewer.open(b.dataset.doc, token, S.me.name + ' · ' + S.me.code, b.dataset.title); });
       host.appendChild(d);
     }
+    coachSetup();
     clearInterval(reportPoll); reportPoll = setInterval(refreshReport, 60000);
   }
+  let aiLoading = false, aiGaveUp = false, aiRetried = false;
+  async function loadAiSuggestions() {
+    aiLoading = true;
+    try {
+      const r = await api('POST', '/ai-report', null, token);
+      if (r.available) { S.report.aiSuggestions = r.suggestions; const y = window.scrollY; showReport(); window.scrollTo(0, y); }
+      else {
+        const slot = $('#aiSlot');
+        if (r.retry && !aiRetried) { aiRetried = true; setTimeout(() => { aiLoading = false; loadAiSuggestions(); }, 30000); if (slot) slot.querySelector('p').textContent = 'AI suggestions are taking longer than usual — retrying shortly…'; return; }
+        aiGaveUp = true; if (slot) slot.remove();
+      }
+    } catch { aiGaveUp = true; const slot = $('#aiSlot'); if (slot) slot.remove(); }
+    aiLoading = false;
+  }
+
+  /* ---------------- AI coach ---------------- */
+  const STARTERS = ['What does "capacity is not cash" mean?', 'How should I think about refunds?', 'Check my payback maths', 'How do I write a strong rationale?'];
+  let coachEl = null, fabEl = null, coachBusy = false;
+  function coachSetup() {
+    if (!S || !S.coach || !S.coach.enabled) { if (fabEl) fabEl.remove(); if (coachEl) coachEl.remove(); fabEl = coachEl = null; return; }
+    if (fabEl) { renderCoach(); return; }
+    fabEl = document.createElement('button'); fabEl.className = 'coach-fab no-print'; fabEl.innerHTML = '<span class="dot"></span>Ask the AI coach';
+    fabEl.addEventListener('click', () => { coachEl.classList.remove('hide'); fabEl.classList.add('hide'); renderCoach(); setTimeout(() => $('#coachIn').focus(), 50); });
+    coachEl = document.createElement('section'); coachEl.className = 'coach hide no-print'; coachEl.setAttribute('aria-label', 'AI coach');
+    coachEl.innerHTML = '<div class="coach-head"><b>TALENT TWIN Coach</b><span class="chip" id="coachLeft"></span><button class="btn btn-ghost btn-sm" id="coachX" aria-label="Close coach">✕</button></div>' +
+      '<div class="coach-log" id="coachLog" aria-live="polite"></div><div class="coach-starters" id="coachStarters"></div>' +
+      '<form class="coach-form" id="coachForm"><input type="text" id="coachIn" maxlength="500" placeholder="Ask about the case or a concept…" autocomplete="off"><button class="btn btn-primary btn-sm" type="submit">Send</button></form>' +
+      '<div class="coach-foot">The coach explains concepts and case facts. It will not tell you which option scores best. AI can make mistakes.</div>';
+    document.body.appendChild(fabEl); document.body.appendChild(coachEl);
+    $('#coachX').addEventListener('click', () => { coachEl.classList.add('hide'); fabEl.classList.remove('hide'); });
+    $('#coachForm').addEventListener('submit', e => { e.preventDefault(); const q = $('#coachIn').value.trim(); if (q) ask(q); });
+    $('#coachStarters').addEventListener('click', e => { const b = e.target.closest('button'); if (b) ask(b.textContent); });
+  }
+  function renderCoach() {
+    if (!coachEl) return;
+    const c = S.coach; const log = $('#coachLog');
+    $('#coachLeft').textContent = c.remaining + ' AI repl' + (c.remaining === 1 ? 'y' : 'ies') + ' left';
+    const msgs = c.history.length ? c.history : [{ role: 'assistant', content: 'Hi! I can explain the case, the evidence cards and concepts like capacity vs cash, payback or Hackman & Oldham. What would you like to think through?', source: 'intro' }];
+    log.innerHTML = msgs.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : 'assistant') + '">' + esc(m.content) + (m.role !== 'user' && m.source !== 'intro' ? '<span class="src">' + (m.source === 'ai' ? 'AI coach' : 'Built-in coach') + '</span>' : '') + '</div>').join('') +
+      (coachBusy ? '<div class="msg assistant"><span class="typing"><i></i><i></i><i></i></span></div>' : '');
+    $('#coachStarters').innerHTML = c.history.length ? '' : STARTERS.map(q => '<button type="button">' + esc(q) + '</button>').join('');
+    log.scrollTop = log.scrollHeight;
+  }
+  async function ask(q) {
+    if (coachBusy) return; coachBusy = true; $('#coachIn').value = '';
+    S.coach.history = S.coach.history.concat([{ role: 'user', content: q }]); renderCoach();
+    try {
+      if (dirty && S.me.status === 'in_progress') { clearTimeout(saveTimer); await save(); }   // coach sees your latest choices
+      const r = await api('POST', '/coach', { question: q }, token);
+      S.coach = r.coach; if (r.note) toast(r.note, 5000);
+    } catch (e) { S.coach.history = S.coach.history.concat([{ role: 'assistant', content: 'Sorry — ' + e.message, source: 'error' }]); }
+    coachBusy = false; renderCoach();
+  }
+
   async function refreshReport() {
     try { const r = await api('GET', '/me', null, token); S = r; if (r.me.status === 'in_progress') { clearInterval(reportPoll); draft = null; return loadMe(); } const y = window.scrollY; showReport(); window.scrollTo(0, y); }
     catch (e) { if (e.status === 401) { clearInterval(reportPoll); store.del(TOKEN_KEY); location.reload(); } }

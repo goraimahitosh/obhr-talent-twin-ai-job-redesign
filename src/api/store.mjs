@@ -109,3 +109,16 @@ export async function listStaleUploads(olderThanMs) {
   const all = await getMany(await keysWithPrefix(s().data, 'd-'));
   return all.filter(d => d.status === 'uploading' && Date.now() - Date.parse(d.created_at) > olderThanMs);
 }
+
+/* ---- small counters / misc JSON (e.g. monthly AI usage) ---- */
+export async function getKV(key) { return getJSON(key); }
+export async function updateKV(key, fn) {
+  for (let i = 0; i < 6; i++) {
+    const cur = await s().data.getWithMetadata(key, { type: 'json' });
+    const next = fn(cur ? cur.data : null);
+    const r = cur && cur.etag ? await setJSON(key, next, { onlyIfMatch: cur.etag }) : await setJSON(key, next, cur ? undefined : { onlyIfNew: true });
+    if (!r || r.modified !== false) return next;
+    await new Promise(res => setTimeout(res, 30 + Math.random() * 60));
+  }
+  return null;
+}

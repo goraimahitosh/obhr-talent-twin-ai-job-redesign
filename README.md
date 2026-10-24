@@ -1,4 +1,4 @@
-# TALENT TWIN — Job Redesign Lab (v2.1, multi-user web app)
+# TALENT TWIN — Job Redesign Lab (v2.2, multi-user web app)
 
 A classroom simulation for **Strategic HRM: job analysis, competency mapping and AI-era job redesign**.
 Students redesign a Customer Support Executive role for AI, test the business case, plan the workforce
@@ -12,8 +12,8 @@ from the **LEAH TALENT TWIN orchestrator**.
 | Faculty | `https://<your-site>.netlify.app/admin.html` | Faculty password (you create it on first visit) |
 
 **Stack:** a static site plus one serverless function on **Netlify**. Data and documents are stored in **Netlify Blobs**,
-which is built into every Netlify site.
-**There is no database to create, no keys to copy and no environment variables to set.**
+and the free AI runs on **Netlify AI Gateway**. Both are built into Netlify.
+**There is no database to create, no API keys to copy and no environment variables to set.**
 
 ---
 
@@ -61,6 +61,22 @@ That variable always overrides the stored password.
 - **LEAH orchestrator**: see below.
 - **Scoring guide**: the full rubric and the faculty reference pattern.
 
+## Free AI: coach chatbot + AI suggestions in the report
+- **AI coach**: an "Ask the AI coach" button for participants. It explains concepts (capacity vs cash, payback, Hackman & Oldham),
+  case facts and evidence cards, and checks arithmetic. It is instructed never to reveal which option scores best and sees the student's current choices.
+  Default limit: 10 AI replies per participant, set in the console. Faculty can read every conversation in the participant drawer.
+- **AI suggestions**: 3–4 personalised suggestions, a "replay" idea and a reflection question at the top of each final report, generated once per participant.
+  It does not reveal reference answers until you release the debrief, and never changes the score.
+- **How it's free**: Netlify AI Gateway gives functions access to OpenAI models with no key (Netlify injects the credentials).
+  Usage is paid from your Netlify plan's monthly credits. The default model, `gpt-4.1-nano`, costs about 0.07 credits per coach reply and 0.1 per report,
+  so roughly **45 credits for a 60-student class**.
+- **Important**: the Free plan has **300 credits per month** shared with hosting (each production deploy costs 15). **If credits run out, Netlify pauses the
+  whole site until next month.** The console therefore has a **monthly AI credit cap** (default 100), an on/off switch, and a live usage meter.
+  When AI is off, capped or unavailable, a built-in rule-based coach answers instead, so the simulation never depends on AI.
+- **Turning it on**: it works automatically after the first production deploy on a credit-based plan (Free, Personal or Pro), provided AI features are enabled
+  for your team (Netlify → Team settings → AI features). Check with **Console → Session & timer → Free AI → Test AI**.
+- **Privacy**: prompts contain the case, the participant's choices and rationale, and their questions. **No names** are sent. Netlify routes only to providers with zero data retention.
+
 ## LEAH integration (faculty bridge)
 LEAH (iimv.agentic.leahai.com) does not offer API keys for calling an orchestrator from another website, so the app uses a
 **faculty bridge**. Students never need LEAH accounts.
@@ -74,8 +90,8 @@ LEAH (iimv.agentic.leahai.com) does not offer API keys for calling an orchestrat
 ## Files
 ```
 public/                      index.html (students) · admin.html (faculty) · css/ · js/ · vendor/ (PDF.js, Mammoth, SheetJS)
-netlify/functions/api.mjs    the server function, pre-built (includes the Netlify Blobs client), so no npm install is needed
-src/api/                     server source: index.mjs (routes) · scoring.mjs (server-only rubric & reference) · store.mjs (Netlify Blobs) · auth.mjs
+netlify/functions/api.mjs    the server function, pre-built (includes the Netlify Blobs and OpenAI clients), so no npm install is needed
+src/api/                     server source: index.mjs (routes) · scoring.mjs (server-only rubric & reference) · store.mjs (Netlify Blobs) · ai.mjs (AI coach & suggestions) · auth.mjs
 scripts/build.mjs            rebuilds netlify/functions/api.mjs from src/api (only if you edit server code: npm install && npm run build)
 docs/                        FACULTY_GUIDE.md · LEAH_ORCHESTRATOR_BUILD_PROMPT.txt
 ```

@@ -83,7 +83,7 @@
     h.push('<div class="card"><div class="card-head"><div><h2>Leaderboard</h2><p>Ranked by automatic rubric score (plus any faculty adjustment). Click a row for the full report and decisions.</p></div><div class="btn-row"><button class="btn btn-ghost btn-sm" data-act="csv">Export CSV</button></div></div>' +
       '<div class="btn-row" style="margin-bottom:10px"><input type="text" id="q" placeholder="Search name, code or roll" value="' + esc(filter.q) + '" style="max-width:280px"><select id="statusF" style="max-width:200px">' +
       [['all', 'All statuses'], ['done', 'Submitted'], ['progress', 'In progress']].map(([v, l]) => '<option value="' + v + '" ' + (filter.status === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select><span class="small muted">Auto-refreshes every 10 s</span></div>' +
-      '<div class="table-wrap"><table><thead><tr><th>Rank</th><th>Participant</th><th>Status</th><th class="num">Score</th>' + st.categories.map(c => '<th class="num" title="' + esc(c.label) + '">' + esc(c.label.split(' ')[0]) + ' /' + c.max + '</th>').join('') + '<th class="num">Time</th><th>LEAH</th></tr></thead><tbody id="lbBody">' + lbRows() + '</tbody></table></div></div>');
+      '<div class="table-wrap"><table><thead><tr><th>Rank</th><th>Participant</th><th>Status</th><th class="num">Score</th>' + st.categories.map(c => '<th class="num" title="' + esc(c.label) + '">' + esc(c.label.split(' ')[0]) + ' /' + c.max + '</th>').join('') + '<th class="num">Time</th><th class="num" title="Questions asked to the AI coach">Coach Qs</th><th>LEAH</th></tr></thead><tbody id="lbBody">' + lbRows() + '</tbody></table></div></div>');
 
     if (done.length) {
       h.push('<div class="grid cols-2"><div class="card"><h2>Category averages</h2>' + st.categories.map(c => { const a = done.reduce((s2, p) => s2 + (p.rubric ? p.rubric[c.key] : 0), 0) / done.length; return '<div class="cat-row"><span>' + esc(c.label) + '</span><b style="text-align:right">' + a.toFixed(1) + ' / ' + c.max + '</b><div class="bar"><i style="width:' + pct(a, c.max) + '%"></i></div></div>'; }).join('') + '</div>');
@@ -97,13 +97,13 @@
   }
   function lbRows() {
     const rows = filtered();
-    if (!rows.length) return '<tr><td colspan="' + (6 + st.categories.length) + '" class="muted">No participants yet. Share the student link to begin.</td></tr>';
+    if (!rows.length) return '<tr><td colspan="' + (7 + st.categories.length) + '" class="muted">No participants yet. Share the student link to begin.</td></tr>';
     return rows.map(p => {
       const end = p.submittedAt ? Date.parse(p.submittedAt) : nowS(); const dur = end - Date.parse(p.startedAt);
       const rk = p.rank ? '<span class="rank ' + (p.rank <= 3 ? 'r' + p.rank : '') + '">' + p.rank + '</span>' : '<span class="muted">—</span>';
       return '<tr class="clickable" data-pid="' + p.id + '"><td>' + rk + '</td><td><b>' + esc(p.name) + '</b>' + (p.duplicateName ? ' <span class="chip warn" title="Same name used more than once">duplicate</span>' : '') + '<div class="small muted"><span class="mono">' + esc(p.code) + '</span>' + (p.roll ? ' · ' + esc(p.roll) : '') + (round === '__all__' ? ' · ' + esc(p.round) : '') + '</div></td><td>' + statusChip(p) + '</td>' +
         '<td class="num"><b>' + (p.score != null ? p.score : '—') + '</b>' + (p.adjustment ? '<div class="small muted">' + (p.adjustment > 0 ? '+' : '') + p.adjustment + ' adj.</div>' : '') + '</td>' +
-        st.categories.map(c => '<td class="num">' + (p.rubric ? p.rubric[c.key] : '—') + '</td>').join('') + '<td class="num">' + fmtDuration(dur) + '</td><td>' + (p.hasLeah ? '<span class="chip ok">✓</span>' : '') + '</td></tr>';
+        st.categories.map(c => '<td class="num">' + (p.rubric ? p.rubric[c.key] : '—') + '</td>').join('') + '<td class="num">' + fmtDuration(dur) + '</td><td class="num">' + (p.coachQuestions || '—') + '</td><td>' + (p.hasLeah ? '<span class="chip ok">✓</span>' : '') + '</td></tr>';
     }).join('');
   }
 
@@ -122,9 +122,9 @@
       if (p.status === 'in_progress') {
         const d = M.sanitizeDecisions(r.draft || {}); const res = M.compute(r.report.case, d);
         body.innerHTML = actions + '<div class="card"><h3>Current draft</h3><div class="table-wrap" style="margin-top:8px"><table><tbody>' + M.TASKS.map(t => '<tr><td>' + esc(t.name) + '</td><td>' + (d.modes[t.id] ? M.MODES[d.modes[t.id]] : '<span class="muted">—</span>') + '</td></tr>').join('') + '</tbody></table></div>' +
-          '<p class="small" style="margin-top:10px"><b>Skills:</b> ' + (d.skills.map(esc).join(' · ') || '—') + '<br><b>Net monthly benefit so far:</b> ' + money(res.monthlyNet) + '<br><b>Rationale:</b> ' + esc(d.rationale || '—') + '</p></div>';
+          '<p class="small" style="margin-top:10px"><b>Skills:</b> ' + (d.skills.map(esc).join(' · ') || '—') + '<br><b>Net monthly benefit so far:</b> ' + money(res.monthlyNet) + '<br><b>Rationale:</b> ' + esc(d.rationale || '—') + '</p></div>' + chatHtml(r.chat);
       } else {
-        body.innerHTML = actions + '<div id="drRep"></div>';
+        body.innerHTML = actions + '<div id="drRep"></div>' + chatHtml(r.chat) + (r.report.aiSuggestions ? '<div class="btn-row" style="margin-top:10px"><button class="btn btn-ghost btn-sm" data-pa="clearAi">Regenerate AI suggestions (next time the participant opens the report)</button></div>' : '');
         window.TTReport.mount($('#drRep'), r.report, { admin: true });
       }
       body.onclick = async e => {
@@ -136,6 +136,11 @@
         try { await api('POST', '/admin/participant/' + id, payload, token); toast('Saved.'); host.innerHTML = ''; await load(); if (a === 'adjust') openParticipant(id); } catch (err) { toast(err.message, 5000); }
       };
     } catch (e) { host.querySelector('.drawer-body').innerHTML = '<p class="note bad">' + esc(e.message) + '</p>'; }
+  }
+
+  function chatHtml(chat) {
+    if (!chat || !chat.length) return '';
+    return '<div class="card"><h3>AI coach conversation</h3><div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">' + chat.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : 'assistant') + '">' + esc(m.content) + (m.role !== 'user' ? '<span class="src">' + (m.source === 'ai' ? 'AI coach' : 'Built-in coach') + '</span>' : '') + '</div>').join('') + '</div></div>';
   }
 
   /* ---------------- settings ---------------- */
@@ -161,7 +166,22 @@
       '<div class="field"><label class="lbl" for="cHorizon">Planning horizon</label><select id="cHorizon">' + [12, 36, 60].map(v => '<option value="' + v + '" ' + (c.horizon === v ? 'selected' : '') + '>' + v / 12 + ' year(s)</option>').join('') + '</select></div>' +
       num('cHead', 'Team size (executives)', c.headcount) + num('cSalary', 'Average monthly salary (₹)', c.salary, '', 1000) + num('cHours', 'Monthly task workload (hours)', c.hours, '', 100) +
       num('cSetup', 'One-time budget (₹)', c.setupBudget, '', 50000) + num('cCap', 'Monthly AI running-cost cap (₹)', c.monthlyCap, '', 10000) + num('cOver', 'Oversight cost per month if any AI is used (₹)', c.overhead, '', 5000) +
-      num('cGrowth', 'Annual volume growth (%)', c.growth) + '</div><div class="btn-row" style="margin-top:12px"><button class="btn btn-primary" data-act="saveCase">Save case facts</button><span class="small muted">Defaults are calibrated so the evidence-backed redesign is also the strongest business case.</span></div></div>';
+      num('cGrowth', 'Annual volume growth (%)', c.growth) + '</div><div class="btn-row" style="margin-top:12px"><button class="btn btn-primary" data-act="saveCase">Save case facts</button><span class="small muted">Defaults are calibrated so the evidence-backed redesign is also the strongest business case.</span></div></div>' + aiCard();
+  }
+  function aiCard() {
+    const a = st.settings.ai; const u = st.ai.usage; const ok = st.ai.configured;
+    const pctUsed = a.monthlyCreditCap ? Math.min(100, u.credits / a.monthlyCreditCap * 100) : 100;
+    const chk = (id, label, v, hint) => '<label class="check ' + (v ? 'on' : '') + '"><input type="checkbox" id="' + id + '" ' + (v ? 'checked' : '') + '><span>' + label + '<small>' + hint + '</small></span></label>';
+    return '<div class="card"><div class="card-head"><div><h2>Free AI (Netlify AI Gateway)</h2><p>Uses the AI included with your Netlify plan: no API key needed. It draws on the same monthly Netlify credits as hosting (Free plan: 300 per month). <b>If those run out, Netlify pauses the whole site until next month</b>, so keep a cap well below 300.</p></div>' +
+      '<span class="chip ' + (ok ? 'ok' : 'warn') + '">' + (ok ? 'AI Gateway connected' : 'AI Gateway not available') + '</span></div>' +
+      (ok ? '' : '<p class="note warn">The AI Gateway is not active on this site yet. It needs a credit-based Netlify plan (Free, Personal or Pro), at least one production deploy, and AI features enabled for your team (Team settings → AI). Until then, students get the built-in rule-based coach.</p>') +
+      '<div class="grid cols-3" style="margin-top:10px">' + [['This month\'s AI calls', u.calls], ['AI credits used', (u.credits || 0).toFixed(2) + ' / ' + a.monthlyCreditCap], ['Built-in fallbacks', u.fallbacks || 0]].map(([k, v]) => '<div class="stat"><div class="k">' + k + '</div><div class="v" style="font-size:18px">' + v + '</div></div>').join('') + '</div>' +
+      '<div class="bar ' + (pctUsed > 85 ? 'red' : pctUsed > 60 ? 'amber' : '') + '" style="margin:10px 0 4px"><i style="width:' + pctUsed + '%"></i></div><p class="hint">Estimated from tokens used: about 0.07 credits per coach reply and 0.1 per report with gpt-4.1-nano, so roughly 45 credits for a 60-student class.</p>' +
+      '<div class="radio-list" style="margin-top:12px">' + chk('aiOn', 'Use AI', a.enabled, 'Master switch. Off = built-in coach only, no AI suggestions.') + chk('aiBot', 'AI coach chatbot for participants', a.bot, 'Floating "Ask the AI coach" panel. It explains concepts and case facts but never gives answers.') + chk('aiRep', 'AI suggestions in the final report', a.report, 'Personalised suggestions generated once per participant after submission.') + '</div>' +
+      '<div class="grid cols-3" style="margin-top:12px"><div class="field"><label class="lbl" for="aiMsgs">AI coach replies per participant</label><input type="number" id="aiMsgs" min="0" max="50" value="' + a.botMessages + '"><div class="hint">After this, the built-in coach answers.</div></div>' +
+      '<div class="field"><label class="lbl" for="aiCap">Monthly AI credit cap</label><input type="number" id="aiCap" min="0" max="280" step="5" value="' + a.monthlyCreditCap + '"><div class="hint">When reached, AI stops until next month; the site keeps working.</div></div>' +
+      '<div class="field"><label class="lbl" for="aiModel">Model</label><select id="aiModel">' + [['gpt-4.1-nano', 'gpt-4.1-nano (cheapest, recommended)'], ['gpt-4o-mini', 'gpt-4o-mini (≈1.5× cost)'], ['gpt-4.1-mini', 'gpt-4.1-mini (≈4× cost, best quality)']].map(([v, l]) => '<option value="' + v + '" ' + (a.model === v ? 'selected' : '') + '>' + l + '</option>').join('') + '</select></div></div>' +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn btn-primary" data-act="saveAi">Save AI settings</button><button class="btn btn-ghost" data-act="testAi">Test AI</button><span id="aiTestOut" class="small muted"></span></div></div>';
   }
 
   /* ---------------- documents ---------------- */
@@ -293,6 +313,8 @@
       if (act === 'saveCase') await saveSettings({ case: { company: $('#cCompany').value, industry: $('#cIndustry').value, horizon: Number($('#cHorizon').value), headcount: Number($('#cHead').value), salary: Number($('#cSalary').value), hours: Number($('#cHours').value), setupBudget: Number($('#cSetup').value), monthlyCap: Number($('#cCap').value), overhead: Number($('#cOver').value), growth: Number($('#cGrowth').value) } });
       if (act === 'resetCase') { if (await U.confirmBox('Reset case facts?', 'Restore the calibrated default case for new participants.', 'Reset')) await saveSettings({ case: M.DEFAULT_CASE }); }
       if (act === 'upload') await upload();
+      if (act === 'saveAi') await saveSettings({ ai: { enabled: $('#aiOn').checked, bot: $('#aiBot').checked, report: $('#aiRep').checked, botMessages: Number($('#aiMsgs').value) || 0, monthlyCreditCap: Number($('#aiCap').value) || 0, model: $('#aiModel').value } });
+      if (act === 'testAi') { const o = $('#aiTestOut'); o.textContent = 'Testing…'; const r = await api('POST', '/admin/ai/test', null, token); o.textContent = (r.ok ? '✓ ' : '✗ ') + r.message; o.style.color = r.ok ? 'var(--green)' : 'var(--red)'; }
       if (act === 'changePw') { const r = await api('POST', '/admin/password', { current: $('#pwCur').value, password: $('#pwNew').value }, token); token = r.token; store.set(KEY, token); $('#pwCur').value = ''; $('#pwNew').value = ''; toast('Password changed. Other faculty sessions are signed out.', 5000); }
       if (act === 'saveUrl') await saveSettings({ orchestratorUrl: $('#lUrl').value });
       if (act === 'importA') { const r = await api('POST', '/admin/leah/agent', { raw: $('#rA').value }, token); toast(r.parsed ? 'LEAH recommendation imported.' : 'Imported, but no TT_AGENT_JSON block was found.', 5000); await load(); }

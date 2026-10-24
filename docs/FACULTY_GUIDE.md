@@ -78,6 +78,12 @@ Default case (calibrated): 40 executives, ₹30,000 salary, 5,600 h/month, ₹15
 | Complex complaints (15%) | Human-led | Augment | E2 escalations, E5 social-media risk |
 | Quality & reporting (10%) | AI-augmented | Human-led | E2, E4 leads sample only 2% |
 
+## Free AI (Netlify AI Gateway)
+- **AI coach**: Socratic tutor; explains concepts, case facts and arithmetic; never gives "the answer" or discusses scoring. Replies per participant are capped (default 10). You can read every conversation in the participant drawer, and the leaderboard shows a "Coach Qs" count.
+- **AI suggestions**: generated once per participant after submission. Grounded in their decisions, weakest rubric items and rationale. Mentions the reference pattern only after you release the debrief. It does not affect the score.
+- **Budget**: about 0.07 credits per coach reply and 0.1 per report (gpt-4.1-nano), roughly 45 credits per 60-student class. Netlify Free gives 300 credits a month shared with hosting, and the site pauses if they run out, so keep the monthly AI cap at 100 or below. When AI is off, capped or unavailable, the built-in coach answers automatically.
+- **Debrief use**: ask the class which coach questions were most useful, and whether the AI's suggestions agreed with the evidence. This is a good discussion of AI-augmented (not automated) learning.
+
 ## LEAH workflow
 1. **Before class:** Console → LEAH tab → Step A. Copy the case prompt into the orchestrator (Preview), paste the full answer back, and import it.
 2. **After submissions:** Step B, in batches of 12. Copy, run in LEAH, paste back, import. Personal feedback appears in each report. Codes only; names never leave the app.

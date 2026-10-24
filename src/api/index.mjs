@@ -4,6 +4,7 @@
 import TT from '../../public/js/model.js';
 import * as SC from './scoring.mjs';
 import * as S from './store.mjs';
+import * as AI from './ai.mjs';
 import { sha256, newToken, newCode, checkAdminPassword, issueAdminToken, verifyAdminToken, bearer, adminStatus, setupAdminPassword, changeAdminPassword } from './auth.mjs';
 
 const GRACE_MS = 45 * 1000;          // network grace after the deadline
@@ -27,6 +28,7 @@ export const DEFAULT_SETTINGS = {
   showScore: true,              // show score + rubric in the participant report right after submission
   releaseDebrief: false,        // show reference answers + LEAH recommendation to participants
   showRank: false,              // show rank within the round in participant reports
+  ai: AI.DEFAULT_AI,
   leah: { orchestratorUrl: 'https://iimv.agentic.leahai.com/orchestrator/9e6d6c015b6b425a9fe5d30b4b56ec07?tab=preview', agent: null, classInsights: {} }
 };
 
@@ -50,6 +52,7 @@ async function getSettings() {
   s.case = TT.sanitizeCase(Object.assign({}, DEFAULT_SETTINGS.case, d.case || {}));
   s.leah = Object.assign({}, DEFAULT_SETTINGS.leah, d.leah || {});
   s.leah.classInsights = s.leah.classInsights || {};
+  s.ai = Object.assign({}, AI.DEFAULT_AI, d.ai || {});
   return s;
 }
 
@@ -99,7 +102,8 @@ async function requireAdmin(req) {
 
 function publicSettings(s) {
   return { title: s.title, isOpen: s.isOpen, timeLimitMinutes: Number(s.timeLimitMinutes) || 0, endsAt: s.endsAt,
-    round: s.currentRound, showScore: !!s.showScore, releaseDebrief: !!s.releaseDebrief, showRank: !!s.showRank };
+    round: s.currentRound, showScore: !!s.showScore, releaseDebrief: !!s.releaseDebrief, showRank: !!s.showRank,
+    coach: !!(s.ai.enabled && s.ai.bot), aiReport: !!(s.ai.enabled && s.ai.report) };
 }
 const docMeta = d => ({ id: d.id, title: d.title, kind: ALLOWED_DOC_TYPES[d.mime] || 'other', mime: d.mime, size: d.size_bytes });
 
@@ -128,7 +132,7 @@ async function buildReport(p, s, forAdmin) {
       rows: res.rows.map(r => Object.assign({}, r, { reason: SC.TASK_REASONS[r.id] }))
     },
     futureJD: SC.futureJD(res), reskilling: SC.reskillingPlan(res), workforce: SC.workforcePlan(res),
-    leahFeedback: p.leah_feedback || null, scoreVisible: showScore, debriefReleased: release
+    leahFeedback: p.leah_feedback || null, aiSuggestions: p.ai_report || null, scoreVisible: showScore, debriefReleased: release
   };
   if (showScore) {
     report.score = Number(p.score != null ? p.score : rb.total);
@@ -181,6 +185,7 @@ async function routeMe(req) {
   const out = { me: participantView(p, s), settings: publicSettings(s), case: TT.caseContent(p.case_snapshot),
     caseFacts: TT.sanitizeCase(p.case_snapshot), documents: docs };
   if (p.status !== 'in_progress') out.report = await buildReport(p, s, false);
+  out.coach = coachState(p, s);
   return json(out);
 }
 
@@ -233,6 +238,57 @@ async function routeDocChunk(req, id, n) {
     'content-disposition': 'inline', 'x-content-type-options': 'nosniff' } });
 }
 
+/* ---------------- AI coach & AI report suggestions ---------------- */
+function coachState(p, s) {
+  const used = (p.chat || []).filter(m => m.role === 'assistant' && m.source === 'ai').length;
+  return { enabled: !!(s.ai.enabled && s.ai.bot), remaining: Math.max(0, s.ai.botMessages - used), limit: s.ai.botMessages,
+    history: (p.chat || []).slice(-20).map(m => ({ role: m.role, content: m.content, source: m.source })) };
+}
+
+async function routeCoach(req) {
+  const s = await getSettings();
+  const p = await participantFromReq(req);
+  const b = await body(req);
+  const q = String(b.question || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  if (q.length < 2) throw new HttpError(400, 'Type a question first.');
+  const history = p.chat || [];
+  const used = history.filter(m => m.role === 'assistant' && m.source === 'ai').length;
+  let answer = null, source = 'builtin', note = '';
+  let reason = !s.ai.bot ? 'The AI coach is switched off by faculty.' : await AI.blockedReason(s.ai);
+  if (!reason && used >= s.ai.botMessages) reason = 'You have used all ' + s.ai.botMessages + ' AI coach replies for this attempt.';
+  if (!reason) {
+    try { answer = await AI.coachReply(s.ai, p.case_snapshot, TT.sanitizeDecisions(p.draft || {}), history, q); source = 'ai'; }
+    catch (e) { console.error('AI coach failed:', e.message); reason = 'The AI service did not respond.'; }
+  }
+  if (!answer) { answer = AI.builtinCoach(q); note = reason ? reason + ' Answered by the built-in coach.' : ''; if (reason && !/switched off|used all/.test(reason)) await AI.recordFallback().catch(() => {}); }
+  const at = new Date().toISOString();
+  const chat = history.concat([{ role: 'user', content: q, at }, { role: 'assistant', content: answer, source, at }]).slice(-40);
+  const np = await S.updateParticipant(p.id, { chat });
+  return json({ answer, source, note, coach: coachState(np, s) });
+}
+
+async function routeAiReport(req) {
+  const s = await getSettings();
+  let p = await participantFromReq(req);
+  if (p.status === 'in_progress') throw new HttpError(400, 'Submit first.');
+  if (p.ai_report) return json({ available: true, suggestions: p.ai_report });
+  if (!s.showScore) return json({ available: false, reason: 'Results have not been released yet.' });
+  if (!s.ai.report) return json({ available: false, reason: 'AI suggestions are switched off by faculty.' });
+  const reason = await AI.blockedReason(s.ai);
+  if (reason) return json({ available: false, reason });
+  try {
+    const rep = await buildReport(p, s, false);
+    const sug = await AI.reportSuggestions(s.ai, rep, !!s.releaseDebrief, SC.REFERENCE);
+    if (!sug.suggestions.length) throw new Error('empty suggestions');
+    const stored = Object.assign({ generatedAt: new Date().toISOString(), model: s.ai.model }, sug);
+    await S.updateParticipant(p.id, { ai_report: stored });
+    return json({ available: true, suggestions: stored });
+  } catch (e) {
+    console.error('AI report failed:', e.message); await AI.recordFallback().catch(() => {});
+    return json({ available: false, reason: 'The AI service did not respond. Try again in a minute.', retry: true });
+  }
+}
+
 /* ---------------- admin routes ---------------- */
 async function routeAdminLogin(req) {
   const b = await body(req);
@@ -274,13 +330,15 @@ async function routeAdminState(req, url) {
       score: p.score != null ? Number(p.score) : null, rank: rankOf.get(p.id) || null,
       rubric: p.rubric ? { business: p.rubric.business, course: p.rubric.course, job: p.rubric.job, ethics: p.rubric.ethics, complete: p.rubric.complete, total: p.rubric.total } : null,
       adjustment: Number(p.adjustment || 0), adjustmentNote: p.adjustment_note || '',
-      summary: p.summary || null, decisions: p.decisions || null, hasLeah: !!p.leah_feedback,
+      summary: p.summary || null, decisions: p.decisions || null, hasLeah: !!p.leah_feedback, hasAi: !!p.ai_report,
+      coachQuestions: (p.chat || []).filter(m => m.role === 'user').length,
       duplicateName: nameCount[p.name.toLowerCase()] > 1 };
   });
   const rounds = await S.listRounds();
   if (!rounds.includes(s.currentRound)) rounds.push(s.currentRound);
   const documents = (await S.listDocuments(false)).map(d => Object.assign(docMeta(d), { visible: d.visible, fileName: d.file_name, createdAt: d.created_at }));
-  return json({ settings: s, round, rounds, participants, documents, categories: TT.CATEGORIES,
+  const ai = { configured: AI.aiConfigured(), usage: await AI.usage() };
+  return json({ settings: s, ai, round, rounds, participants, documents, categories: TT.CATEGORIES,
     reference: SC.REFERENCE, taskReasons: SC.TASK_REASONS, serverNow: new Date().toISOString() });
 }
 
@@ -298,6 +356,16 @@ async function routeAdminSettings(req) {
   if ('showScore' in b) next.showScore = !!b.showScore;
   if ('releaseDebrief' in b) next.releaseDebrief = !!b.releaseDebrief;
   if ('showRank' in b) next.showRank = !!b.showRank;
+  if (b.ai && typeof b.ai === 'object') {
+    const a = Object.assign({}, s.ai);
+    if ('enabled' in b.ai) a.enabled = !!b.ai.enabled;
+    if ('bot' in b.ai) a.bot = !!b.ai.bot;
+    if ('report' in b.ai) a.report = !!b.ai.report;
+    if ('botMessages' in b.ai) a.botMessages = TT.clamp(Math.round(Number(b.ai.botMessages) || 0), 0, 50);
+    if ('monthlyCreditCap' in b.ai) a.monthlyCreditCap = TT.clamp(Number(b.ai.monthlyCreditCap) || 0, 0, 280);
+    if ('model' in b.ai && /^[a-z0-9.\-]{3,40}$/.test(String(b.ai.model))) a.model = String(b.ai.model);
+    next.ai = a;
+  }
   if ('orchestratorUrl' in b) {
     const u = String(b.orchestratorUrl || '').trim();
     next.leah = Object.assign({}, s.leah, { orchestratorUrl: /^https:\/\//.test(u) ? u.slice(0, 500) : DEFAULT_SETTINGS.leah.orchestratorUrl });
@@ -311,7 +379,8 @@ async function routeAdminParticipant(req, id) {
   const s = await getSettings(); const b = await body(req);
   const p = await S.participantById(id);
   if (!p) throw new HttpError(404, 'Participant not found.');
-  if (b.action === 'report') return json({ report: await buildReport(p, s, true), draft: p.draft });
+  if (b.action === 'report') return json({ report: await buildReport(p, s, true), draft: p.draft, chat: (p.chat || []).slice(-40) });
+  if (b.action === 'clearAi') { await S.updateParticipant(id, { ai_report: null }); return json({ ok: true }); }
   if (b.action === 'adjust') {
     const adj = TT.clamp(Number(b.adjustment) || 0, -10, 10);
     const base = p.rubric ? Number(p.rubric.total) : null;
@@ -321,7 +390,7 @@ async function routeAdminParticipant(req, id) {
   }
   if (b.action === 'forceSubmit') { if (p.status === 'in_progress') await finalize(p, s, true); return json({ ok: true }); }
   if (b.action === 'reopen') {
-    await S.updateParticipant(id, { status: 'in_progress', submitted_at: null, started_at: new Date().toISOString(), decisions: null, rubric: null, summary: null, score: null });
+    await S.updateParticipant(id, { status: 'in_progress', submitted_at: null, started_at: new Date().toISOString(), decisions: null, rubric: null, summary: null, score: null, ai_report: null });
     return json({ ok: true });
   }
   if (b.action === 'delete') { await S.deleteParticipant(id); return json({ ok: true }); }
@@ -371,6 +440,14 @@ async function routeAdminDoc(req, id) {
   if (b.action === 'rename') { await S.updateDocument(id, { title: cleanText(b.title, 120) || d.title }); return json({ ok: true }); }
   if (b.action === 'delete') { await S.deleteDocument(id); return json({ ok: true }); }
   throw new HttpError(400, 'Unknown action');
+}
+
+async function routeAdminAiTest(req) {
+  await requireAdmin(req);
+  const s = await getSettings();
+  if (!AI.aiConfigured()) return json({ ok: false, message: 'Netlify AI Gateway is not available here. It needs a credit-based Netlify plan (Free, Personal or Pro), at least one production deploy, and AI features enabled for your team.' });
+  try { const a = await AI.coachReply(Object.assign({}, s.ai, { enabled: true }), s.case, TT.emptyDecisions(), [], 'In one sentence, what does "capacity is not cash" mean here?'); return json({ ok: true, message: a, usage: await AI.usage() }); }
+  catch (e) { return json({ ok: false, message: 'AI call failed: ' + e.message }); }
 }
 
 /* LEAH bridge: import orchestrator output pasted by faculty. */
@@ -466,7 +543,10 @@ export default async function handler(req) {
     if ((mm = path.match(/^\/api\/admin\/doc\/([0-9a-f-]{36})$/)) && m === 'POST') return await routeAdminDoc(req, mm[1]);
     if (path === '/api/admin/leah/agent' && m === 'POST') return await routeAdminLeahAgent(req);
     if (path === '/api/admin/leah/debrief' && m === 'POST') return await routeAdminLeahDebrief(req);
-    if (path === '/api/health') return json({ ok: true, version: TT.RUBRIC_VERSION });
+    if (path === '/api/coach' && m === 'POST') return await routeCoach(req);
+    if (path === '/api/ai-report' && m === 'POST') return await routeAiReport(req);
+    if (path === '/api/admin/ai/test' && m === 'POST') return await routeAdminAiTest(req);
+    if (path === '/api/health') return json({ ok: true, version: TT.RUBRIC_VERSION, ai: AI.aiConfigured() });
     return json({ error: 'Not found' }, 404);
   } catch (e) {
     const status = e.status || 500;
