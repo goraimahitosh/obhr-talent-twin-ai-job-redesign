@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TALENT TWIN · Job Redesign Lab</title>
+<meta name="description" content="TALENT TWIN — an AI-era job redesign simulation for Strategic HRM.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23141b2d'/%3E%3Ctext x='16' y='21' font-family='Arial' font-size='13' font-weight='700' fill='white' text-anchor='middle'%3ETT%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand"><span class="brand-mark">TT</span><span>TALENT TWIN<small>Job Redesign Lab</small></span></div>
+    <span class="spacer"></span>
+    <span id="whoChip" class="chip hide"></span>
+    <span id="saveChip" class="chip hide">Saved</span>
+    <span id="timerChip" class="chip timer hide" aria-live="polite"></span>
+  </div>
+</header>
+
+<!-- Landing: enter name -->
+<section id="landing" class="landing hide">
+  <div class="landing-card">
+    <div class="card">
+      <div class="section-label">Strategic HRM · AI-era job redesign</div>
+      <h1 id="landingTitle">TALENT TWIN — Job Redesign Lab</h1>
+      <p class="muted" style="margin-top:8px">You are the HR transformation lead at an Indian e-commerce company. Redesign the Customer Support Executive role for AI: decide which tasks to automate, augment or keep human-led, test the business case, plan the workforce and reskilling, then defend your recommendation with evidence from the case.</p>
+      <div id="landingStatus" class="note hide" style="margin:12px 0"></div>
+      <form id="startForm" autocomplete="off" style="margin-top:14px">
+        <div class="field"><label class="lbl" for="pName">Your full name</label><input type="text" id="pName" maxlength="80" required placeholder="e.g. Asha Rao"></div>
+        <div class="field"><label class="lbl" for="pRoll">Roll number <span class="muted">(optional)</span></label><input type="text" id="pRoll" maxlength="40" placeholder="e.g. PGP-25-041"></div>
+        <div class="btn-row" style="margin-top:16px"><button class="btn btn-primary" id="startBtn" type="submit">Start the simulation</button><span id="limitNote" class="small muted"></span></div>
+        <p class="hint" style="margin-top:12px">No login needed. Your work saves automatically in this browser — use the same device until you submit. Your name is visible to your faculty.</p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<!-- Simulation -->
+<section id="app" class="hide">
+  <div class="wrap"><nav id="steps" class="steps" aria-label="Simulation steps"></nav></div>
+  <main class="wrap page" id="stepHost"></main>
+</section>
+
+<!-- Report -->
+<section id="reportView" class="hide"><main class="wrap page" id="reportHost"></main></section>
+
+<script src="/js/model.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/viewer.js"></script>
+<script src="/js/report.js"></script>
+<script src="/js/student.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Faculty Console · TALENT TWIN</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f6e66'/%3E%3Ctext x='16' y='21' font-family='Arial' font-size='13' font-weight='700' fill='white' text-anchor='middle'%3ETT%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand"><span class="brand-mark" style="background:var(--accent)">TT</span><span>Faculty Console<small>TALENT TWIN · Job Redesign Lab</small></span></div>
+    <span class="spacer"></span>
+    <span id="liveChip" class="chip hide">Live</span>
+    <select id="roundSel" class="hide" aria-label="Round" style="width:auto;padding:6px 10px"></select>
+    <button id="logoutBtn" class="btn btn-ghost btn-sm hide">Sign out</button>
+  </div>
+</header>
+
+<section id="login" class="landing hide">
+  <div class="landing-card"><div class="card">
+    <div class="section-label">Faculty only</div><h1 id="loginTitle">Sign in to the console</h1>
+    <p class="muted" id="loginHint" style="margin-top:6px">Use the faculty password for this deployment.</p>
+    <form id="loginForm" style="margin-top:14px">
+      <div class="field"><label class="lbl" for="pw">Faculty password</label><input type="password" id="pw" autocomplete="current-password" required></div>
+      <div class="field hide" id="pw2Wrap"><label class="lbl" for="pw2">Repeat password</label><input type="password" id="pw2" autocomplete="new-password"></div>
+      <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" id="loginBtn" type="submit">Sign in</button></div>
+    </form>
+  </div></div>
+</section>
+
+<section id="console" class="hide">
+  <main class="wrap page">
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="dashboard">Dashboard & rankings</button>
+      <button class="tab" data-tab="settings">Session & timer</button>
+      <button class="tab" data-tab="documents">Documents</button>
+      <button class="tab" data-tab="leah">LEAH orchestrator</button>
+      <button class="tab" data-tab="guide">Scoring guide</button>
+    </nav>
+    <div id="tabHost"></div>
+  </main>
+</section>
+
+<div id="drawerHost"></div>
+
+<script src="/js/model.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/viewer.js"></script>
+<script src="/js/report.js"></script>
+<script src="/js/admin.js"></script>
+</body>
+</html>
