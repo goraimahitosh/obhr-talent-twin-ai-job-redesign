@@ -1,0 +1,23 @@
+# TALENT TWIN — Job Redesign Lab · Netlify configuration
+# Data and documents are stored in Netlify Blobs (built in; nothing to set up).
+[build]
+  publish   = "public"
+  functions = "netlify/functions"
+  command   = "echo 'Pre-built: no build step needed'"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+[[headers]]
+  for = "/admin.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-store"

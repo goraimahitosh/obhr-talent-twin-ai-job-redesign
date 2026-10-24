@@ -1,0 +1,16 @@
+{
+  "name": "talent-twin-job-redesign-lab",
+  "version": "2.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "TALENT TWIN — Job Redesign Lab: multi-user AI job-redesign classroom simulation with faculty console (Netlify Functions + Netlify Blobs).",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "deploy": "npx -y netlify-cli deploy --prod"
+  },
+  "devDependencies": {
+    "@netlify/blobs": "^11.1.6",
+    "esbuild": "^0.24.0"
+  },
+  "engines": { "node": ">=18" }
+}
