@@ -17,13 +17,8 @@ export function aiConfigured() { return !!process.env.OPENAI_API_KEY; }
 const monthKey = () => 'ai-usage-' + new Date().toISOString().slice(0, 7);
 export async function usage() { return (await S.getKV(monthKey())) || { month: new Date().toISOString().slice(0, 7), calls: 0, inTok: 0, outTok: 0, credits: 0, fallbacks: 0 }; }
 
-let client = null;
-function openai() {
-  if (!client) {
-    client = new OpenAI({ timeout: 25000, maxRetries: 1 });   // reads OPENAI_API_KEY / OPENAI_BASE_URL injected by Netlify
-  }
-  return client;
-}
+// Create the client per call: Netlify injects gateway credentials per invocation, so never reuse a stale client.
+function openai() { return new OpenAI({ timeout: 25000, maxRetries: 1 }); }   // reads OPENAI_API_KEY / OPENAI_BASE_URL
 
 /* Can we spend on AI right now? Returns null if yes, or a reason string. */
 export async function blockedReason(ai) {

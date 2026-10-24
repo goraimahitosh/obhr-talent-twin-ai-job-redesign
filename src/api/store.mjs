@@ -6,18 +6,17 @@
 import crypto from 'node:crypto';
 import { getStore } from '@netlify/blobs';
 
-let stores = null;
 function open(name) {
   // Local test harness only: TT_BLOBS_API_URL points at @netlify/blobs' BlobsServer.
-  if (process.env.TT_BLOBS_API_URL) return getStore({ name, siteID: 'local-site', token: 'local-token', apiURL: process.env.TT_BLOBS_API_URL });
+  if (process.env.TT_BLOBS_API_URL) return getStore({ name, siteID: 'local-site', token: process.env.TT_BLOBS_TOKEN || 'local-token', apiURL: process.env.TT_BLOBS_API_URL });
   return getStore({ name, consistency: 'strong' });
 }
+// IMPORTANT: never cache store objects across requests. Netlify gives each function invocation its own
+// short-lived Blobs token; a store created during an earlier invocation keeps the old token and fails with
+// "Failed to decode token: Token expired". getStore() is cheap, so open fresh handles on every call.
 function s() {
-  if (!stores) {
-    try { stores = { data: open('tt-data'), files: open('tt-files') }; }
-    catch (e) { throw Object.assign(new Error('Storage is not available. Deploy the site on Netlify (Netlify Blobs is configured automatically there).'), { status: 500 }); }
-  }
-  return stores;
+  try { return { data: open('tt-data'), files: open('tt-files') }; }
+  catch (e) { throw Object.assign(new Error('Storage is not available. Deploy the site on Netlify (Netlify Blobs is configured automatically there).'), { status: 500 }); }
 }
 const nowIso = () => new Date().toISOString();
 

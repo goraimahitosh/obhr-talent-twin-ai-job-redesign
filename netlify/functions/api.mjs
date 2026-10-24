@@ -1484,7 +1484,7 @@ var Store = class _Store {
     }
   }
   getListIterator(options) {
-    const { client: client2, name: storeName } = this;
+    const { client, name: storeName } = this;
     const parameters = {};
     if (options?.prefix) {
       parameters.prefix = options.prefix;
@@ -1513,7 +1513,7 @@ var Store = class _Store {
               if (currentCursor !== null) {
                 nextParameters.cursor = currentCursor;
               }
-              const res = await client2.makeRequest({
+              const res = await client.makeRequest({
                 method: "get",
                 parameters: nextParameters,
                 storeName
@@ -1572,8 +1572,8 @@ var getStore = (input, options) => {
   if (typeof input === "string") {
     const contextOverride = options?.siteID && options?.token ? { siteID: options?.siteID, token: options?.token } : void 0;
     const clientOptions = getClientOptions(options ?? {}, contextOverride);
-    const client2 = new Client(clientOptions);
-    return new Store({ client: client2, name: input });
+    const client = new Client(clientOptions);
+    return new Store({ client, name: input });
   }
   if (typeof input?.name === "string") {
     const { name } = input;
@@ -1582,8 +1582,8 @@ var getStore = (input, options) => {
     if (!name) {
       throw new MissingBlobsEnvironmentError(["name"]);
     }
-    const client2 = new Client(clientOptions);
-    return new Store({ client: client2, name });
+    const client = new Client(clientOptions);
+    return new Store({ client, name });
   }
   if (typeof input?.deployID === "string") {
     const context = getEnvironmentContext();
@@ -1593,8 +1593,8 @@ var getStore = (input, options) => {
       throw new MissingBlobsEnvironmentError(["deployID"]);
     }
     clientOptions.region = getDeployStoreRegion(clientOptions, context);
-    const client2 = new Client(clientOptions);
-    return new Store({ client: client2, deployID });
+    const client = new Client(clientOptions);
+    return new Store({ client, deployID });
   }
   throw new Error(
     "The `getStore` method requires the name of the store as a string or as the `name` property of an options object"
@@ -1602,20 +1602,16 @@ var getStore = (input, options) => {
 };
 
 // src/api/store.mjs
-var stores = null;
 function open(name) {
-  if (process.env.TT_BLOBS_API_URL) return getStore({ name, siteID: "local-site", token: "local-token", apiURL: process.env.TT_BLOBS_API_URL });
+  if (process.env.TT_BLOBS_API_URL) return getStore({ name, siteID: "local-site", token: process.env.TT_BLOBS_TOKEN || "local-token", apiURL: process.env.TT_BLOBS_API_URL });
   return getStore({ name, consistency: "strong" });
 }
 function s() {
-  if (!stores) {
-    try {
-      stores = { data: open("tt-data"), files: open("tt-files") };
-    } catch (e) {
-      throw Object.assign(new Error("Storage is not available. Deploy the site on Netlify (Netlify Blobs is configured automatically there)."), { status: 500 });
-    }
+  try {
+    return { data: open("tt-data"), files: open("tt-files") };
+  } catch (e) {
+    throw Object.assign(new Error("Storage is not available. Deploy the site on Netlify (Netlify Blobs is configured automatically there)."), { status: 500 });
   }
-  return stores;
 }
 var nowIso = () => (/* @__PURE__ */ new Date()).toISOString();
 async function getJSON(key) {
@@ -2379,14 +2375,14 @@ var levelNumbers = {
   info: 400,
   debug: 500
 };
-var parseLogLevel = (maybeLevel, sourceName, client2) => {
+var parseLogLevel = (maybeLevel, sourceName, client) => {
   if (!maybeLevel) {
     return void 0;
   }
   if (hasOwn(levelNumbers, maybeLevel)) {
     return maybeLevel;
   }
-  loggerFor(client2).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
+  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
   return void 0;
 };
 function noop() {
@@ -2405,9 +2401,9 @@ var noopLogger = {
   debug: noop
 };
 var cachedLoggers = /* @__PURE__ */ new WeakMap();
-function loggerFor(client2) {
-  const logger = client2.logger;
-  const logLevel = client2.logLevel ?? "off";
+function loggerFor(client) {
+  const logger = client.logger;
+  const logLevel = client.logLevel ?? "off";
   if (!logger) {
     return noopLogger;
   }
@@ -2557,13 +2553,13 @@ function createStreamTeeQueue() {
 }
 var Stream = class _Stream {
   /** Wraps an asynchronous event iterator and the controller that owns its request. */
-  constructor(iterator, controller, client2) {
+  constructor(iterator, controller, client) {
     _Stream_instances.add(this);
     _Stream_client.set(this, void 0);
     _Stream_isTeeBranch.set(this, false);
     this.iterator = iterator;
     this.controller = controller;
-    __classPrivateFieldSet(this, _Stream_client, client2, "f");
+    __classPrivateFieldSet(this, _Stream_client, client, "f");
   }
   /**
    * Decodes an SSE response into parsed JSON events.
@@ -2572,9 +2568,9 @@ var Stream = class _Stream {
    * surfaces API error payloads as `APIError` instances. When
    * `synthesizeEventData` is enabled, each item also includes its SSE event name.
    */
-  static fromSSEResponse(response, controller, client2, synthesizeEventData) {
+  static fromSSEResponse(response, controller, client, synthesizeEventData) {
     let consumed = false;
-    const logger = client2 ? loggerFor(client2) : console;
+    const logger = client ? loggerFor(client) : console;
     async function* iterator() {
       if (consumed) {
         throw new OpenAIError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
@@ -2636,13 +2632,13 @@ var Stream = class _Stream {
         }
       }
     }
-    return new _Stream(iterator, controller, client2);
+    return new _Stream(iterator, controller, client);
   }
   /**
    * Generates a Stream from a newline-separated ReadableStream
    * where each item is a JSON value.
    */
-  static fromReadableStream(readableStream, controller, client2) {
+  static fromReadableStream(readableStream, controller, client) {
     let consumed = false;
     async function* iterLines() {
       const lineDecoder = new LineDecoder();
@@ -2725,7 +2721,7 @@ var Stream = class _Stream {
         }
       }
     }
-    return new _Stream(iterator, controller, client2);
+    return new _Stream(iterator, controller, client);
   }
   /** Starts consuming this stream; attempting to consume it again throws. */
   [(_Stream_client = /* @__PURE__ */ new WeakMap(), _Stream_isTeeBranch = /* @__PURE__ */ new WeakMap(), _Stream_instances = /* @__PURE__ */ new WeakSet(), Symbol.asyncIterator)]() {
@@ -3102,16 +3098,16 @@ function partition(str, delimiter) {
 }
 
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/internal/parse.mjs
-async function defaultParseResponse(client2, props) {
+async function defaultParseResponse(client, props) {
   const { response, requestLogID, retryOfRequestLogID, startTime } = props;
   let jsonBodyLength;
   const body2 = await (async () => {
     if (props.options.stream) {
-      loggerFor(client2).debug("response", response.status, response.url, response.headers, response.body);
+      loggerFor(client).debug("response", response.status, response.url, response.headers, response.body);
       if (props.options.__streamClass) {
-        return props.options.__streamClass.fromSSEResponse(response, props.controller, client2, props.options.__synthesizeEventData);
+        return props.options.__streamClass.fromSSEResponse(response, props.controller, client, props.options.__synthesizeEventData);
       }
-      return Stream.fromSSEResponse(response, props.controller, client2, props.options.__synthesizeEventData);
+      return Stream.fromSSEResponse(response, props.controller, client, props.options.__synthesizeEventData);
     }
     if (response.status === 204) {
       return null;
@@ -3140,8 +3136,8 @@ async function defaultParseResponse(client2, props) {
   })().catch((error) => {
     throw asAbortError(error, props.controller.signal);
   });
-  if (client2.logLevel === "debug") {
-    loggerFor(client2).debug(`[${requestLogID}] response parsed`, formatRequestDetails({
+  if (client.logLevel === "debug") {
+    loggerFor(client).debug(`[${requestLogID}] response parsed`, formatRequestDetails({
       retryOfRequestLogID,
       url: response.url,
       status: response.status,
@@ -3773,17 +3769,17 @@ function resolveDataResidency(options) {
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/core/api-promise.mjs
 var _APIPromise_client;
 var APIPromise = class _APIPromise extends Promise {
-  constructor(client2, responsePromise, parseResponse2 = defaultParseResponse) {
+  constructor(client, responsePromise, parseResponse2 = defaultParseResponse) {
     super((resolve) => {
       resolve(null);
     });
     this.responsePromise = responsePromise;
     this.parseResponse = parseResponse2;
     _APIPromise_client.set(this, void 0);
-    __classPrivateFieldSet(this, _APIPromise_client, client2, "f");
+    __classPrivateFieldSet(this, _APIPromise_client, client, "f");
   }
   _thenUnwrap(transform) {
-    return new _APIPromise(__classPrivateFieldGet(this, _APIPromise_client, "f"), this.responsePromise, async (client2, props) => addRequestID(transform(await this.parseResponse(client2, props), props), props.response));
+    return new _APIPromise(__classPrivateFieldGet(this, _APIPromise_client, "f"), this.responsePromise, async (client, props) => addRequestID(transform(await this.parseResponse(client, props), props), props.response));
   }
   /**
    * Gets the raw `Response` instance instead of parsing the response
@@ -3836,9 +3832,9 @@ _APIPromise_client = /* @__PURE__ */ new WeakMap();
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/core/pagination.mjs
 var _AbstractPage_client;
 var AbstractPage = class {
-  constructor(client2, response, body2, options) {
+  constructor(client, response, body2, options) {
     _AbstractPage_client.set(this, void 0);
-    __classPrivateFieldSet(this, _AbstractPage_client, client2, "f");
+    __classPrivateFieldSet(this, _AbstractPage_client, client, "f");
     this.options = options;
     this.response = response;
     this.body = body2;
@@ -3873,8 +3869,8 @@ var AbstractPage = class {
   }
 };
 var PagePromise = class extends APIPromise {
-  constructor(client2, request, Page2) {
-    super(client2, request, async (client3, props) => new Page2(client3, props.response, await defaultParseResponse(client3, props), props.options));
+  constructor(client, request, Page2) {
+    super(client, request, async (client2, props) => new Page2(client2, props.response, await defaultParseResponse(client2, props), props.options));
   }
   /**
    * Allow auto-paginating iteration on an unawaited list call, eg:
@@ -3891,8 +3887,8 @@ var PagePromise = class extends APIPromise {
   }
 };
 var Page = class extends AbstractPage {
-  constructor(client2, response, body2, options) {
-    super(client2, response, body2, options);
+  constructor(client, response, body2, options) {
+    super(client, response, body2, options);
     this.data = body2.data || [];
     this.object = body2.object;
   }
@@ -3904,8 +3900,8 @@ var Page = class extends AbstractPage {
   }
 };
 var CursorPage = class extends AbstractPage {
-  constructor(client2, response, body2, options) {
-    super(client2, response, body2, options);
+  constructor(client, response, body2, options) {
+    super(client, response, body2, options);
     this.data = body2.data || [];
     this.has_more = body2.has_more || false;
   }
@@ -3934,8 +3930,8 @@ var CursorPage = class extends AbstractPage {
   }
 };
 var ConversationCursorPage = class extends AbstractPage {
-  constructor(client2, response, body2, options) {
-    super(client2, response, body2, options);
+  constructor(client, response, body2, options) {
+    super(client, response, body2, options);
     this.data = body2.data || [];
     this.has_more = body2.has_more || false;
     this.last_id = body2.last_id || "";
@@ -3964,8 +3960,8 @@ var ConversationCursorPage = class extends AbstractPage {
   }
 };
 var NextCursorPage = class extends AbstractPage {
-  constructor(client2, response, body2, options) {
-    super(client2, response, body2, options);
+  constructor(client, response, body2, options) {
+    super(client, response, body2, options);
     this.data = body2.data || [];
     this.has_more = body2.has_more || false;
     this.next = body2.next || null;
@@ -3994,8 +3990,8 @@ var NextCursorPage = class extends AbstractPage {
   }
 };
 var TokenPage = class extends AbstractPage {
-  constructor(client2, response, body2, options) {
-    super(client2, response, body2, options);
+  constructor(client, response, body2, options) {
+    super(client, response, body2, options);
     this.data = body2.data || [];
     this.has_more = body2.has_more || false;
     this.next = body2.next || null;
@@ -5642,8 +5638,8 @@ function propsForError(value) {
 
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/core/resource.mjs
 var APIResource = class {
-  constructor(client2) {
-    this._client = client2;
+  constructor(client) {
+    this._client = client;
   }
 };
 
@@ -7566,20 +7562,20 @@ var AbstractChatCompletionRunner = class extends EventStream {
       this._emit("totalUsage", __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this));
     }
   }
-  async _createChatCompletion(client2, params, options) {
+  async _createChatCompletion(client, params, options) {
     this._listenForAbort(options?.signal);
     __classPrivateFieldGet(_a2, _a2, "m", _AbstractChatCompletionRunner_validateParams).call(_a2, params);
-    const chatCompletion = await client2.chat.completions.create({ ...params, stream: false }, { ...options, signal: this.controller.signal });
+    const chatCompletion = await client.chat.completions.create({ ...params, stream: false }, { ...options, signal: this.controller.signal });
     this._connected();
     return this._addChatCompletion(parseChatCompletion(chatCompletion, params));
   }
-  async _runChatCompletion(client2, params, options) {
+  async _runChatCompletion(client, params, options) {
     for (const message of params.messages) {
       this._addMessage(message, false, false);
     }
-    return await this._createChatCompletion(client2, params, options);
+    return await this._createChatCompletion(client, params, options);
   }
-  async _runTools(client2, params, runner, options) {
+  async _runTools(client, params, runner, options) {
     const role = "tool";
     const { tool_choice = "auto", stream, toolContext: inputToolContext, ...restParams } = params;
     const toolContext = inputToolContext;
@@ -7695,7 +7691,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
       return { message: { role, tool_call_id, content }, functionCalled: true };
     };
     for (let i = 0; i < maxChatCompletions; ++i) {
-      const chatCompletion = await this._createChatCompletion(client2, {
+      const chatCompletion = await this._createChatCompletion(client, {
         ...restParams,
         tool_choice,
         tools,
@@ -7839,13 +7835,13 @@ _a2 = AbstractChatCompletionRunner, _AbstractChatCompletionRunner_completionArri
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/lib/ChatCompletionRunner.mjs
 var ChatCompletionRunner = class _ChatCompletionRunner extends AbstractChatCompletionRunner {
   /** Starts a non-streaming tool loop and returns its event-driven conversation runner. */
-  static runTools(client2, params, options) {
+  static runTools(client, params, options) {
     const runner = new _ChatCompletionRunner();
     const opts = {
       ...options,
       __metadata: { ...options?.__metadata, helperMethod: "runTools" }
     };
-    runner._run(() => runner._runTools(client2, params, runner, opts));
+    runner._run(() => runner._runTools(client, params, runner, opts));
     return runner;
   }
   /**
@@ -8858,17 +8854,17 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
     return runner;
   }
   /** Starts a streaming chat completion request and returns its event-driven helper. */
-  static createChatCompletion(client2, params, options) {
+  static createChatCompletion(client, params, options) {
     const runner = new _ChatCompletionStream(params);
-    runner._run(() => runner._runChatCompletion(client2, { ...params, stream: true }, { ...options, __metadata: { ...options?.__metadata, helperMethod: "stream" } }));
+    runner._run(() => runner._runChatCompletion(client, { ...params, stream: true }, { ...options, __metadata: { ...options?.__metadata, helperMethod: "stream" } }));
     return runner;
   }
   /** Rejects unfinished turns before tool callbacks while preserving ordinary stream and replay behavior. */
-  _runTools(client2, params, runner, options) {
+  _runTools(client, params, runner, options) {
     __classPrivateFieldSet(this, _ChatCompletionStream_rejectsUnfinishedTurns, true, "f");
-    return super._runTools(client2, params, runner, options);
+    return super._runTools(client, params, runner, options);
   }
-  async _createChatCompletion(client2, params, options) {
+  async _createChatCompletion(client, params, options) {
     this._listenForAbort(options?.signal);
     const requestParams = { ...params, stream: true };
     __classPrivateFieldSet(this, _ChatCompletionStream_params, requestParams, "f");
@@ -8880,7 +8876,7 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       __classPrivateFieldSet(this, _ChatCompletionStream_params, serialized, "f");
       __classPrivateFieldSet(this, _ChatCompletionStream_hasAutoParseableTool, serialized.tools?.some((tool) => isChatCompletionFunctionTool(tool) && (isAutoParsableTool(tool) || tool.function.strict === true)) ?? false, "f");
     }) : void 0;
-    const stream = await client2.chat.completions.create(requestParams, {
+    const stream = await client.chat.completions.create(requestParams, {
       ...options,
       signal: this.controller.signal
     }).finally(stopObserving);
@@ -9696,7 +9692,7 @@ var ChatCompletionStreamingRunner = class _ChatCompletionStreamingRunner extends
     return stream.toReadableStream();
   }
   /** Starts a streaming tool loop and returns its event-driven conversation runner. */
-  static runTools(client2, params, options) {
+  static runTools(client, params, options) {
     const runner = new _ChatCompletionStreamingRunner(
       // @ts-expect-error TODO these types are incompatible
       params
@@ -9705,7 +9701,7 @@ var ChatCompletionStreamingRunner = class _ChatCompletionStreamingRunner extends
       ...options,
       __metadata: { ...options?.__metadata, helperMethod: "runTools" }
     };
-    runner._run(() => runner._runTools(client2, params, runner, opts));
+    runner._run(() => runner._runTools(client, params, runner, opts));
     return runner;
   }
 };
@@ -13821,9 +13817,9 @@ function preflight(files, options) {
   }
   return entries;
 }
-async function prepareAgentFiles(client2, files, options) {
+async function prepareAgentFiles(client, files, options) {
   const requestOptions = { ...options };
-  const headers = buildHeaders([client2["_options"].defaultHeaders, requestOptions.headers]);
+  const headers = buildHeaders([client["_options"].defaultHeaders, requestOptions.headers]);
   requestOptions.headers = headers;
   const entries = preflight(files, requestOptions);
   if (entries.length > 1) {
@@ -13832,7 +13828,7 @@ async function prepareAgentFiles(client2, files, options) {
   const prepared = { files: [], uploadedFiles: [] };
   try {
     for (const [path2, file] of entries) {
-      const uploaded = await client2.files.create({ file, purpose: "user_data" }, requestOptions);
+      const uploaded = await client.files.create({ file, purpose: "user_data" }, requestOptions);
       prepared.uploadedFiles.push(uploaded);
       prepared.files.push({ type: "file_id", file_id: uploaded.id, path: path2 });
     }
@@ -13841,8 +13837,8 @@ async function prepareAgentFiles(client2, files, options) {
     throw new AgentFileUploadError(prepared.uploadedFiles, error);
   }
 }
-async function uploadAgentFile(client2, resource, environmentID, params, options) {
-  const prepared = await prepareAgentFiles(client2, { [params.path]: params.file }, options);
+async function uploadAgentFile(client, resource, environmentID, params, options) {
+  const prepared = await prepareAgentFiles(client, { [params.path]: params.file }, options);
   const [reference] = prepared.files;
   const [uploadedFile] = prepared.uploadedFiles;
   if (!reference || !uploadedFile) {
@@ -14176,8 +14172,8 @@ var Environments = class extends APIResource {
   }
 };
 var EnvironmentInfosPage = class extends CursorPage {
-  constructor(client2, response, body2, options) {
-    super(client2, response, body2, options);
+  constructor(client, response, body2, options) {
+    super(client, response, body2, options);
     this.object = body2.object;
     this.first_id = body2.first_id;
     this.last_id = body2.last_id;
@@ -18813,11 +18809,11 @@ var Decisions = class extends APIResource {
 };
 
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/lib/embeddings.mjs
-function createEmbedding(client2, body2, options) {
+function createEmbedding(client, body2, options) {
   const hasUserProvidedEncodingFormat = !!body2.encoding_format;
   const encodingFormat = hasUserProvidedEncodingFormat ? body2.encoding_format : "base64";
   if (hasUserProvidedEncodingFormat) {
-    loggerFor(client2).debug("embeddings/user defined encoding_format:", body2.encoding_format);
+    loggerFor(client).debug("embeddings/user defined encoding_format:", body2.encoding_format);
   }
   const optimizedBody = { ...body2, encoding_format: encodingFormat };
   const requestOptions = {
@@ -18825,11 +18821,11 @@ function createEmbedding(client2, body2, options) {
     ...options,
     __security: { bearerAuth: true }
   };
-  const response = client2.post("/embeddings", requestOptions);
+  const response = client.post("/embeddings", requestOptions);
   if (hasUserProvidedEncodingFormat) {
     return response;
   }
-  loggerFor(client2).debug("embeddings/decoding base64 embeddings from base64");
+  loggerFor(client).debug("embeddings/decoding base64 embeddings from base64");
   return response._thenUnwrap((data) => {
     const embeddings = data?.data;
     if (embeddings !== void 0) {
@@ -19923,7 +19919,7 @@ var Moderations = class extends APIResource {
 };
 
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/internal/multipart-encoding.mjs
-async function encodedMultipartFormRequestOptions(options, client2, encodings, rawBodyField = null) {
+async function encodedMultipartFormRequestOptions(options, client, encodings, rawBodyField = null) {
   if (options.body === null || typeof options.body !== "object" || Array.isArray(options.body)) {
     throw new TypeError("Multipart request body must be an object");
   }
@@ -19949,7 +19945,7 @@ async function encodedMultipartFormRequestOptions(options, client2, encodings, r
     encoded.push([name, makeFile([data], "", { type: encoding.content_type })]);
     delete body2[name];
   }
-  const multipart = await multipartFormRequestOptions({ ...options, body: body2 }, client2);
+  const multipart = await multipartFormRequestOptions({ ...options, body: body2 }, client);
   const form = multipart.body;
   if (!(form instanceof FormData)) {
     await form.cancel();
@@ -21588,9 +21584,9 @@ var ResponseStream = class _ResponseStream extends EventStream {
     });
   }
   /** Starts a new response stream or replays an existing response by its identifier. */
-  static createResponse(client2, params, options) {
+  static createResponse(client, params, options) {
     const runner = new _ResponseStream(params);
-    runner._run(() => runner._createOrRetrieveResponse(client2, params, {
+    runner._run(() => runner._createOrRetrieveResponse(client, params, {
       ...options,
       __metadata: { ...options?.__metadata, helperMethod: "stream" }
     }));
@@ -21602,16 +21598,16 @@ var ResponseStream = class _ResponseStream extends EventStream {
     runner._run(() => runner._fromReadableStream(stream));
     return runner;
   }
-  async _createOrRetrieveResponse(client2, params, options) {
+  async _createOrRetrieveResponse(client, params, options) {
     this._listenForAbort(options?.signal);
     __classPrivateFieldGet(this, _ResponseStream_instances, "m", _ResponseStream_beginRequest).call(this);
     let stream;
     let starting_after = null;
     if ("response_id" in params) {
-      stream = await client2.responses.retrieve(params.response_id, { stream: true }, { ...options, signal: this.controller.signal, stream: true });
+      stream = await client.responses.retrieve(params.response_id, { stream: true }, { ...options, signal: this.controller.signal, stream: true });
       starting_after = params.starting_after ?? null;
     } else {
-      stream = await client2.responses.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
+      stream = await client.responses.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
     }
     this._connected();
     for await (const event of stream) {
@@ -22542,7 +22538,7 @@ var allSettledWithThrow = async (promises) => {
 };
 
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/lib/vector-store-upload.mjs
-async function uploadAndPollVectorStoreFileBatch(resource, client2, vectorStoreId, files, fileIds, options) {
+async function uploadAndPollVectorStoreFileBatch(resource, client, vectorStoreId, files, fileIds, options) {
   if (files === null || files === void 0 || files.length === 0) {
     throw new Error("No `files` provided to process. If you've already uploaded files you should use `.createAndPoll()` instead");
   }
@@ -22555,7 +22551,7 @@ async function uploadAndPollVectorStoreFileBatch(resource, client2, vectorStoreI
   const allFileIds = [...fileIds];
   async function processFiles(iterator) {
     for (const item of iterator) {
-      const fileObj = await client2.files.create({ file: item, purpose: "assistants" }, options);
+      const fileObj = await client.files.create({ file: item, purpose: "assistants" }, options);
       allFileIds.push(fileObj.id);
     }
   }
@@ -23412,38 +23408,38 @@ function assertValidBedrockBearerCredential(credential) {
 // ../../../tmp/claude-0/-home-claude/fcbc880c-2d0b-5534-bda0-2cab4f6c3594/scratchpad/harness/node_modules/openai/internal/realtime-credentials.mjs
 var realtimeCacheContext = Symbol.for("openai.realtimeAPIKeyCacheContext");
 var cacheContext;
-function getDeferredRealtimeAPIKeyCache(client2) {
-  const deferred = client2[realtimeCacheContext]?.getStore();
-  return deferred?.client === client2 ? deferred : void 0;
+function getDeferredRealtimeAPIKeyCache(client) {
+  const deferred = client[realtimeCacheContext]?.getStore();
+  return deferred?.client === client ? deferred : void 0;
 }
-function validateCapturedAPIKey(client2, credential) {
-  if (credential !== null && brand_privateBedrockClient in client2) {
+function validateCapturedAPIKey(client, credential) {
+  if (credential !== null && brand_privateBedrockClient in client) {
     assertValidBedrockBearerCredential(credential);
   }
   return credential;
 }
-async function resolveRealtimeAPIKey(client2, deferCache = false) {
+async function resolveRealtimeAPIKey(client, deferCache = false) {
   let apiKey;
   const current = {
-    client: client2,
-    commit: () => apiKey === void 0 ? client2.apiKey : apiKey
+    client,
+    commit: () => apiKey === void 0 ? client.apiKey : apiKey
   };
   const capture = (resolved) => {
     apiKey = resolved;
   };
-  const invoke = () => client2._callApiKey(capture);
-  const context = client2[realtimeCacheContext] ?? cacheContext;
-  if (deferCache && context && !client2[realtimeCacheContext]) {
-    Object.defineProperty(client2, realtimeCacheContext, { value: context });
+  const invoke = () => client._callApiKey(capture);
+  const context = client[realtimeCacheContext] ?? cacheContext;
+  if (deferCache && context && !client[realtimeCacheContext]) {
+    Object.defineProperty(client, realtimeCacheContext, { value: context });
   }
   const isProvider = await (context ? context.run(deferCache ? current : void 0, invoke) : invoke());
   return {
-    apiKey: apiKey === void 0 ? client2.apiKey : apiKey,
+    apiKey: apiKey === void 0 ? client.apiKey : apiKey,
     isProvider,
     commit: () => {
-      const hookKey = current.providerKey !== void 0 && apiKey !== void 0 && apiKey !== current.providerKey ? validateCapturedAPIKey(client2, apiKey) : void 0;
+      const hookKey = current.providerKey !== void 0 && apiKey !== void 0 && apiKey !== current.providerKey ? validateCapturedAPIKey(client, apiKey) : void 0;
       const cached = current.commit();
-      return hookKey === void 0 ? validateCapturedAPIKey(client2, cached) : hookKey;
+      return hookKey === void 0 ? validateCapturedAPIKey(client, cached) : hookKey;
     }
   };
 }
@@ -23687,25 +23683,25 @@ var OpenAI = class {
       provider,
       [inheritedDataResidencySelection]: __classPrivateFieldGet(this, _OpenAI_explicitDataResidency, "f") && residencyBaseURL === void 0 && !hasOwn(options, "baseURL") && options.credential === void 0 && !provider
     };
-    const client2 = new this.constructor(clientOptions);
-    if (provider && new URL(client2.baseURL).origin !== new URL(this.baseURL).origin) {
-      Object.assign(client2._options, {
+    const client = new this.constructor(clientOptions);
+    if (provider && new URL(client.baseURL).origin !== new URL(this.baseURL).origin) {
+      Object.assign(client._options, {
         defaultHeaders: options.defaultHeaders,
         defaultQuery: options.defaultQuery,
         fetchOptions: options.fetchOptions,
         fetch: options.fetch
       });
-      client2.fetchOptions = options.fetchOptions;
-      client2.fetch = options.fetch ?? getDefaultFetch();
-      client2.organization = options.organization ?? null;
-      client2.project = options.project ?? null;
+      client.fetchOptions = options.fetchOptions;
+      client.fetch = options.fetch ?? getDefaultFetch();
+      client.organization = options.organization ?? null;
+      client.project = options.project ?? null;
     }
-    if (__classPrivateFieldGet(this, _OpenAI_x509Authentication, "f") && __classPrivateFieldGet(client2, _OpenAI_x509Authentication, "f") && this.baseURL === client2.baseURL && __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f").matches(__classPrivateFieldGet(client2, _OpenAI_x509Authentication, "f"))) {
-      client2._workloadIdentityAuth = __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f");
-      __classPrivateFieldSet(client2, _OpenAI_x509Authentication, __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f"), "f");
-      __classPrivateFieldSet(client2, _OpenAI_x509Fetch, __classPrivateFieldGet(this, _OpenAI_x509Fetch, "f"), "f");
+    if (__classPrivateFieldGet(this, _OpenAI_x509Authentication, "f") && __classPrivateFieldGet(client, _OpenAI_x509Authentication, "f") && this.baseURL === client.baseURL && __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f").matches(__classPrivateFieldGet(client, _OpenAI_x509Authentication, "f"))) {
+      client._workloadIdentityAuth = __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f");
+      __classPrivateFieldSet(client, _OpenAI_x509Authentication, __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f"), "f");
+      __classPrivateFieldSet(client, _OpenAI_x509Fetch, __classPrivateFieldGet(this, _OpenAI_x509Fetch, "f"), "f");
     }
-    return client2;
+    return client;
   }
   defaultQuery() {
     return this._options.defaultQuery;
@@ -23953,22 +23949,22 @@ var OpenAI = class {
     const request = authentication instanceof X509WorkloadIdentityAuth ? Promise.resolve(options).then((resolved) => authentication.runRequest(() => this.makeRequest(resolved, remainingRetries, void 0), this)) : this.makeRequest(options, remainingRetries, void 0);
     return this.responsePromise(request);
   }
-  responsePromise(request, parse = (client2, props) => this.parseResponseWithTimeout(client2, props)) {
-    const promise = new APIPromise(this, request, (client2, props) => {
+  responsePromise(request, parse = (client, props) => this.parseResponseWithTimeout(client, props)) {
+    const promise = new APIPromise(this, request, (client, props) => {
       const resume = __classPrivateFieldGet(this, _OpenAI_responseAttempts, "f").get(props.controller)?.continueRequest;
-      return resume ? resume(() => parse(client2, props)) : parse(client2, props);
+      return resume ? resume(() => parse(client, props)) : parse(client, props);
     });
     promise.withResponse = async () => {
       const data = await promise;
       const { response } = await request;
       return { data, response, request_id: response.headers.get("x-request-id") };
     };
-    promise._thenUnwrap = (transform) => this.responsePromise(request, async (client2, props) => addRequestID(transform(await parse(client2, props), props), props.response));
+    promise._thenUnwrap = (transform) => this.responsePromise(request, async (client, props) => addRequestID(transform(await parse(client, props), props), props.response));
     return promise;
   }
-  async parseResponseWithTimeout(client2, props) {
+  async parseResponseWithTimeout(client, props) {
     if (props.options.stream || props.options.__binaryResponse || props.response.status === 204 || props.response.headers.get("content-length") === "0") {
-      return defaultParseResponse(client2, props);
+      return defaultParseResponse(client, props);
     }
     while (true) {
       const attempt = __classPrivateFieldGet(this, _OpenAI_responseAttempts, "f").get(props.controller);
@@ -24006,7 +24002,7 @@ var OpenAI = class {
             callerSignal.addEventListener("abort", abortListener, { once: true });
           }
         });
-        return await Promise.race([defaultParseResponse(client2, props), timeoutPromise]);
+        return await Promise.race([defaultParseResponse(client, props), timeoutPromise]);
       } catch (error) {
         if (callerSignal?.aborted && !timedOut) {
           throw abortError();
@@ -24327,9 +24323,9 @@ var OpenAI = class {
     const authentication = __classPrivateFieldGet(this, _OpenAI_x509Authentication, "f") ?? this._workloadIdentityAuth;
     const request = authentication instanceof X509WorkloadIdentityAuth ? Promise.resolve(options).then((resolved) => authentication.runRequest(() => this.makeRequest(resolved, null, void 0), this)) : this.makeRequest(options, null, void 0);
     const page = new PagePromise(this, request, Page2);
-    const guarded = this.responsePromise(request, async (client2, props) => {
-      const body2 = await this.parseResponseWithTimeout(client2, props);
-      return new Page2(client2, props.response, body2, props.options);
+    const guarded = this.responsePromise(request, async (client, props) => {
+      const body2 = await this.parseResponseWithTimeout(client, props);
+      return new Page2(client, props.response, body2, props.options);
     });
     page.then = guarded.then.bind(guarded);
     page.catch = guarded.catch.bind(guarded);
@@ -25068,12 +25064,8 @@ var monthKey = () => "ai-usage-" + (/* @__PURE__ */ new Date()).toISOString().sl
 async function usage() {
   return await getKV(monthKey()) || { month: (/* @__PURE__ */ new Date()).toISOString().slice(0, 7), calls: 0, inTok: 0, outTok: 0, credits: 0, fallbacks: 0 };
 }
-var client = null;
 function openai() {
-  if (!client) {
-    client = new OpenAI({ timeout: 25e3, maxRetries: 1 });
-  }
-  return client;
+  return new OpenAI({ timeout: 25e3, maxRetries: 1 });
 }
 async function blockedReason(ai) {
   if (!ai.enabled) return "AI is switched off by faculty.";
